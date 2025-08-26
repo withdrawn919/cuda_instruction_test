@@ -62,6 +62,14 @@
 
   - cp_async_ca.cu：cp指令行为分析，
 
+- mma
+
+  - m16n8k32_s8_s32.cu：s8-s32的tensor core
+
+- mma_sp
+
+  - sp_m16n8k32_bf16_f32.cu：bf16-f32的稀疏tensor core样例
+
 - nsight-report
   
     这个路径下保存程序的分析报告

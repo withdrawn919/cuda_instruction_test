@@ -7,7 +7,7 @@ set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
 project(fp4_fp8 VERSION 1.0.0 LANGUAGES CUDA CXX C)
 
-# set(CMAKE_BUILD_TYPE Debug)
+set(CMAKE_BUILD_TYPE Debug)
 
 set(CMAKE_CUDA_ARCHITECTURES 120a)  
 
@@ -108,4 +108,14 @@ endif()
 add_executable(m16n16k64dq_cuda_core dequantize_fp4_fp8/m16n16k64dq_cuda_core.cu)
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
   target_compile_options(m16n16k64dq_cuda_core PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:$<$<CONFIG:Debug>:-O0 -G -g>>)
+endif()
+
+add_executable(m16n8k32_s8_s32 mma/m16n8k32_s8_s32.cu)
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+  target_compile_options(m16n8k32_s8_s32 PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:$<$<CONFIG:Debug>:-O0 -G -g>>)
+endif()
+
+add_executable(sp_m16n8k32_bf16_f32 mma_sp/sp_m16n8k32_bf16_f32.cu)
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+  target_compile_options(sp_m16n8k32_bf16_f32 PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:$<$<CONFIG:Debug>:-O0 -G -g>>)
 endif()

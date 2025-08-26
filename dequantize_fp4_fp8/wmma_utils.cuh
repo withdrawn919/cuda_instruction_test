@@ -4,6 +4,16 @@
 #include <cuda.h>
 #include <mma.h>
 
+#define CHECK_CUDA(status)                                                  \
+{                                                                           \
+    cudaError_t error = status;                                             \
+    if (error != cudaSuccess) {                                             \
+        std::cerr << "Got bad cuda status: " << cudaGetErrorString(error)   \
+                << " at line: " << __LINE__ << std::endl;                   \
+        exit(EXIT_FAILURE);                                                 \
+    }                                                                       \
+}
+
 template<typename T>
 void dump(T* data,const int M,const int N) {
     for(int r = 0; r < M; r++) {
@@ -55,6 +65,88 @@ void dumpEx1(T* data, const int M, const int N, const char* name,
     }
 }
 
+template<typename T>
+__device__ __host__
+void dumpEx_row_major(T* data, const int M, const int N, const char* name, 
+            int group_row = 0, int group_col = 0) {
+    printf("Dumping Row Major %s (Shape: %d x %d):\n", name, M, N);
+    printf("     "); // 对齐列号标题
+    
+    // 打印列号标题 + 按列分组分隔符
+    for (int c = 0; c < N; c++) {
+        if (group_col > 0 && c % group_col == 0 && c != 0) 
+            printf(" | "); // 列分组分隔符
+        printf("%8d ", c); // 列号
+    }
+    printf("\n");
+    
+    // 打印数据行（按行分组）
+    for (int r = 0; r < M; r++) {
+        // 行分组分隔符
+        if (group_row > 0 && r % group_row == 0 && r != 0) {
+            printf("----");
+            for (int c = 0; c < N; c++) {
+                if (group_col > 0 && c % group_col == 0 && c != 0) 
+                    printf("----------------");
+                printf("---------");
+            }
+            printf("\n");
+        }
+        
+        printf("%3d: ", r); // 行号标题
+        for (int c = 0; c < N; c++) {
+            // 列分组分隔符
+            if (group_col > 0 && c % group_col == 0 && c != 0) 
+                printf(" | ");
+            
+            // 打印数据（保留3位小数）
+            printf("%8.3f ", static_cast<float>(data[r * N + c]));
+        }
+        printf("\n");
+    }
+}
+
+
+template<typename T>
+__device__ __host__
+void dumpEx_col_major(T* data, const int M, const int N, const char* name, 
+                      int group_row = 0, int group_col = 0) {
+    printf("Dumping Col Major %s (Shape: %d x %d, Column-Major):\n", name, M, N);
+    printf("     "); // 对齐列号标题
+    
+    // 打印列号标题 + 按列分组分隔符（逻辑不变）
+    for (int c = 0; c < N; c++) {
+        if (group_col > 0 && c % group_col == 0 && c != 0) 
+            printf(" | ");
+        printf("%8d ", c);
+    }
+    printf("\n");
+    
+    // 打印数据行（按行分组）
+    for (int r = 0; r < M; r++) {
+        // 行分组分隔符（逻辑不变）
+        if (group_row > 0 && r % group_row == 0 && r != 0) {
+            printf("----");
+            for (int c = 0; c < N; c++) {
+                if (group_col > 0 && c % group_col == 0 && c != 0) 
+                    printf("----------------");
+                printf("---------");
+            }
+            printf("\n");
+        }
+        
+        printf("%3d: ", r); // 行号标题
+        for (int c = 0; c < N; c++) {
+            // 列分组分隔符（逻辑不变）
+            if (group_col > 0 && c % group_col == 0 && c != 0) 
+                printf(" | ");
+            
+            // 关键修改：按列主序访问数据
+            printf("%8.3f ", static_cast<float>(data[c * M + r]));
+        }
+        printf("\n");
+    }
+}
 
 // 打印32位二进制
 __device__ __host__
