@@ -107,6 +107,7 @@ void dumpEx_row_major(T* data, const int M, const int N, const char* name,
 }
 
 
+
 template<typename T>
 __device__ __host__
 void dumpEx_col_major(T* data, const int M, const int N, const char* name, 
