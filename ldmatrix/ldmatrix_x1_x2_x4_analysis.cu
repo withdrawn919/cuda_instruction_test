@@ -11,9 +11,13 @@
 #include <inttypes.h>
 
 
-#define M8N8_X1
+// #define M8N8_X1
 // #define M8N8_X2
 // #define M8N8_X4
+
+// #define M8N8_TRANS_X1
+// #define M8N8_TRANS_X2
+#define M8N8_TRANS_X4
 
 #define LDMATRIX_X1(R0, addr)                                             \
     asm volatile("ldmatrix.sync.aligned.x1.m8n8.shared.b16 {%0}, [%1];\n" \
@@ -29,9 +33,19 @@
     asm volatile("ldmatrix.sync.aligned.x2.m8n8.shared.b16 {%0, %1}, [%2];\n" \
                  : "=r"(R0), "=r"(R1)                                         \
                  : "l"(addr))
+            
+#define LDMATRIX_TRANS_X2(R0, R1, addr)                                             \
+    asm volatile("ldmatrix.sync.aligned.x2.trans.m8n8.shared.b16 {%0, %1}, [%2];\n" \
+                 : "=r"(R0), "=r"(R1)                                         \
+                 : "l"(addr))
 
 #define LDMATRIX_X4(R0, R1, R2, R3, addr)                                             \
     asm volatile("ldmatrix.sync.aligned.x4.m8n8.shared.b16 {%0, %1, %2, %3}, [%4];\n" \
+                 : "=r"(R0), "=r"(R1), "=r"(R2), "=r"(R3)                             \
+                 : "l"(addr))
+
+#define LDMATRIX_TRANS_X4(R0, R1, R2, R3, addr)                                             \
+    asm volatile("ldmatrix.sync.aligned.x4.trans.m8n8.shared.b16 {%0, %1, %2, %3}, [%4];\n" \
                  : "=r"(R0), "=r"(R1), "=r"(R2), "=r"(R3)                             \
                  : "l"(addr))
 // m8n16的ldmatrix需要地址对齐到16B
@@ -73,7 +87,9 @@ __global__ void ldmatrix_m8n16_4bit_x1(){
     }
     
 }
-
+// ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
+//                                 ldmatrix.X1                       
+// ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 __global__ void ldmatrix_m8n8_x1(){
     __shared__ half A[8*8];
     const size_t laneid = threadIdx.x % 32;
@@ -82,15 +98,13 @@ __global__ void ldmatrix_m8n8_x1(){
     __syncthreads();
 
     if(laneid == 0){
-        dumpEx_row_major<half>(A, 8,8, "16bit A:",1,4);
+        dumpEx_row_major<half>(A, 8,8, "16bit A:",1,2);
     }
 
     uint32_t RA;
 
-    // LDMATRIX_X1(RA, __cvta_generic_to_shared(&A[(laneid * 8) % (8 * 8)]));
-    LDMATRIX_TRANS_X1(RA, __cvta_generic_to_shared(&A[(laneid * 8) % (8 * 8)]));
+    LDMATRIX_X1(RA, __cvta_generic_to_shared(&A[(laneid * 8) % (8 * 8)]));
 
-    
     int x = static_cast<int>(RA);
 
     // 1. 将 uint32_t 拆分为两个 uint16_t
@@ -106,21 +120,22 @@ __global__ void ldmatrix_m8n8_x1(){
 
 
 
-    // 只让一个线程（例如laneid=0）执行打印，避免输出混乱
-    if (laneid == 0) {
-        printf("=====================PTX LDMATRX===================\n");
-        printf("| LaneId | Variable     | Raw Hex  | Float Value  |\n");
-        printf("|--------|--------------|----------|--------------|\n");
-    }
+        // 只让一个线程（例如laneid=0）执行打印，避免输出混乱
+       if (laneid == 0) {
+        printf("==============================================PTX LDMATRX=====================================\n");
+        printf("| LaneId | Variable     | Raw Hex  | Float Value  | | Variable     | Raw Hex  | Float Value  |\n");
+        printf("|--------|--------------|----------|--------------| |--------------|----------|--------------|\n");
+        }
 
-    // 所有线程同步，确保表头先打印（如果多个线程都打印表头会混乱，所以只让一个线程打印表头）
-    __syncthreads(); // 如果这是在block级别，需要同步
+        // 所有线程同步，确保表头先打印（如果多个线程都打印表头会混乱，所以只让一个线程打印表头）
+        __syncthreads(); // 如果这是在block级别，需要同步
 
-    // 每个线程打印自己的信息，但通过格式控制使其对齐
-    printf("| %6d | X (High 16)  |   0x%04X | %12.6f |\n", 
-        static_cast<int>(laneid), high16_x, __half2float(h_high_x));
-    printf("| %6d | X (Low 16)   |   0x%04X | %12.6f |\n", 
-        static_cast<int>(laneid), low16_x, __half2float(h_low_x));
+        // 每个线程打印自己的信息，但将X的高16位和低16位打印在同一行
+        printf("| %6d | X (Low 16)  |   0x%04X | %12.6f | "
+            "| X (High 16)   |   0x%04X | %12.6f |\n", 
+            static_cast<int>(laneid), 
+            low16_x, __half2float(h_low_x),
+            high16_x, __half2float(h_high_x));
 
 
 }
@@ -134,7 +149,7 @@ __global__ void load_m8n8_x1(){
     __syncthreads();
 
     if(laneid == 0){
-        dumpEx_row_major<half>(A, 8,8, "16bit A:",1,4);
+        dumpEx_row_major<half>(A, 8,8, "16bit A:",1,2);
     }
 
     uint32_t *ptr = reinterpret_cast<uint32_t*>(&A[(laneid * 8) % (8 * 8)]);
@@ -150,7 +165,7 @@ __global__ void load_m8n8_x1(){
     }
 
     int x = *cur_ptr;
-    if (0){
+    if (1){
         // 1. 将 uint32_t 拆分为两个 uint16_t
         uint16_t high16_x = static_cast<uint16_t>(x >> 16);  // 高16位
         uint16_t low16_x  = static_cast<uint16_t>(x & 0xFFFF); // 低16位
@@ -165,22 +180,156 @@ __global__ void load_m8n8_x1(){
 
 
         // 只让一个线程（例如laneid=0）执行打印，避免输出混乱
-        if (laneid == 0) {
-            printf("| LaneId | Variable     | Raw Hex  | Float Value  |\n");
-            printf("|--------|--------------|----------|--------------|\n");
+       if (laneid == 0) {
+        printf("==============================================PTX LDMATRX=====================================\n");
+        printf("| LaneId | Variable     | Raw Hex  | Float Value  | | Variable     | Raw Hex  | Float Value  |\n");
+        printf("|--------|--------------|----------|--------------| |--------------|----------|--------------|\n");
         }
 
         // 所有线程同步，确保表头先打印（如果多个线程都打印表头会混乱，所以只让一个线程打印表头）
         __syncthreads(); // 如果这是在block级别，需要同步
 
-        // 每个线程打印自己的信息，但通过格式控制使其对齐
-        printf("| %6d | X (High 16)  |   0x%04X | %12.6f |\n", 
-            static_cast<int>(laneid), high16_x, __half2float(h_high_x));
-        printf("| %6d | X (Low 16)   |   0x%04X | %12.6f |\n", 
-            static_cast<int>(laneid), low16_x, __half2float(h_low_x));
+        // 每个线程打印自己的信息，但将X的高16位和低16位打印在同一行
+        printf("| %6d | X (Low 16)  |   0x%04X | %12.6f | "
+            "| X (High 16)   |   0x%04X | %12.6f |\n", 
+            static_cast<int>(laneid), 
+            low16_x, __half2float(h_low_x),
+            high16_x, __half2float(h_high_x));
+
     }
 }
+// ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
+//                            ldmatrix.trans.X1                       
+// ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+__global__ void ldmatrix_m8n8_trans_x1(){
+    constexpr int row = 16;
+    constexpr int col = 8;
+    constexpr int x_align = 1;
+    __shared__ half A[row*col];
+    const size_t laneid = threadIdx.x % 32;
+    A[laneid]=__float2half(laneid * 1.0f);
+    A[laneid + 32]=__float2half(laneid * 2.0f);
+    A[laneid + 32 + 32]=__float2half(laneid * 3.0f);
+    A[laneid + 32 + 32 + 32]=__float2half(laneid * 4.0f);
 
+    __syncthreads();
+
+    if(laneid == 0){
+        dumpEx_row_major<half>(A, row,col, "16bit A:",1,2);
+    }
+
+    uint32_t RA;
+
+    int index_temp = x_align * (laneid * 8) % (row * col);
+
+    printf("index_temp: %d\n", index_temp);
+
+    LDMATRIX_TRANS_X1(RA, __cvta_generic_to_shared(&A[x_align * ((laneid * 8) % (row * col))]));
+    
+    int x = static_cast<int>(RA);
+
+    // 1. 将 uint32_t 拆分为两个 uint16_t
+    uint16_t high16_x = static_cast<uint16_t>(x >> 16);  // 高16位
+    uint16_t low16_x  = static_cast<uint16_t>(x & 0xFFFF); // 低16位
+
+    // 2. 将 uint16_t 的位模式重新解释为 half 类型
+    __half h_high_x, h_low_x;
+
+    // 使用 memcpy 或类型双关来保持位模式不变
+    memcpy(&h_high_x, &high16_x, sizeof(uint16_t));
+    memcpy(&h_low_x, &low16_x, sizeof(uint16_t));
+
+
+if (laneid == 0) {
+    printf("==============================================PTX LDMATRX=====================================\n");
+    printf("| LaneId | Variable     | Raw Hex  | Float Value  | | Variable     | Raw Hex  | Float Value  |\n");
+    printf("|--------|--------------|----------|--------------| |--------------|----------|--------------|\n");
+}
+
+// 所有线程同步，确保表头先打印
+__syncthreads();
+
+// 每个线程打印自己的信息，但将X的高16位和低16位打印在同一行
+printf("| %6d | X (Low 16)  |   0x%04X | %12.6f | "
+       "| X (High 16)   |   0x%04X | %12.6f |\n", 
+       static_cast<int>(laneid), 
+       low16_x, __half2float(h_low_x),
+       high16_x, __half2float(h_high_x));
+
+}
+
+// cuda替换ptx-ldmatirx.m8n8.trans.x1
+__global__ void load_m8n8_trans_x1(){
+    __shared__ half A[8*8];
+    const int laneid = (threadIdx.z * (blockDim.x * blockDim.y) + threadIdx.y * blockDim.x + threadIdx.x) 
+                        & (warpSize - 1);
+    A[laneid]=__float2half(laneid * 1.0f);
+    A[laneid + 32]=__float2half(laneid * 2.0f);
+    __syncthreads();
+
+    if(laneid == 0){
+        dumpEx_row_major<half>(A, 8,8, "16bit A:",1,2);
+    }
+
+    half *ptr = reinterpret_cast<half*>(&A[(laneid * 8) % (8 * 8)]);
+
+
+    __half2 h2_x = {0,0};
+
+    uintptr_t temp = 0;
+
+    #pragma unroll 4
+    for(int i = 0; i < 4; i++) {
+        temp = __shfl_sync(0xFFFFFFFF, reinterpret_cast<uintptr_t>(ptr), 2 * i);
+        if(laneid % 4 == i){
+            h2_x.x = *(reinterpret_cast<half*>(temp) + (laneid / 4));
+        }
+        temp = __shfl_sync(0xFFFFFFFF, reinterpret_cast<uintptr_t>(ptr), 2 * i + 1);
+        if(laneid % 4 == i){
+            h2_x.y = *(reinterpret_cast<half*>(temp) + (laneid / 4));            
+        }
+    }
+    int x = *reinterpret_cast<int*>(&h2_x);
+
+
+
+    if (1){
+
+
+        // 1. 将 uint32_t 拆分为两个 uint16_t
+        uint16_t high16_x = static_cast<uint16_t>(x >> 16);  // 高16位
+        uint16_t low16_x  = static_cast<uint16_t>(x & 0xFFFF); // 低16位
+
+        // 2. 将 uint16_t 的位模式重新解释为 half 类型
+        __half h_high_x, h_low_x;
+
+        // 使用 memcpy 或类型双关来保持位模式不变
+        memcpy(&h_high_x, &high16_x, sizeof(uint16_t));
+        memcpy(&h_low_x, &low16_x, sizeof(uint16_t));
+
+
+
+        if (laneid == 0) {
+            printf("===============================================SOFT LOAD======================================\n");
+            printf("| LaneId | Variable     | Raw Hex  | Float Value  | | Variable     | Raw Hex  | Float Value  |\n");
+            printf("|--------|--------------|----------|--------------| |--------------|----------|--------------|\n");
+        }
+
+        // 所有线程同步，确保表头先打印
+        __syncthreads();
+
+        // 每个线程打印自己的信息，但将X的高16位和低16位打印在同一行
+        printf("| %6d | X (Low 16)  |   0x%04X | %12.6f | "
+            "| X (High 16)   |   0x%04X | %12.6f |\n", 
+            static_cast<int>(laneid), 
+            (uint32_t)h_high_x, __half2float(h_low_x),
+            (uint32_t)h_low_x, __half2float(h_high_x));
+
+    }
+}
+// ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
+//                                 ldmatrix.X2                       
+// ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 __global__ void ldmatrix_m8n8_x2(){
     __shared__ half A[16*8];
     const size_t laneid = threadIdx.x % 32;
@@ -194,7 +343,6 @@ __global__ void ldmatrix_m8n8_x2(){
 
     LDMATRIX_X2(RA[0], RA[1], __cvta_generic_to_shared(&A[(laneid * 8) % (16 * 8)]));
 }
-
 // cuda替换ptx-ldmatirx.m8n8.x2
 __global__ void load_m8n8_x2(){
     __shared__ half A[16*8];
@@ -207,7 +355,7 @@ __global__ void load_m8n8_x2(){
     __syncthreads();
 
     if(laneid == 0){
-        dumpEx_row_major<half>(A, 16,8, "16bit A:",1,4);
+        dumpEx_row_major<half>(A, 16,8, "16bit A:",1,2);
     }
 
     uint32_t *ptr = reinterpret_cast<uint32_t*>(&A[(laneid * 8) % (16 * 8)]);
@@ -247,31 +395,180 @@ __global__ void load_m8n8_x2(){
     memcpy(&h_low_y, &low16_y, sizeof(uint16_t));
 
 
-    // 只让一个线程（例如laneid=0）执行打印，避免输出混乱
     if (laneid == 0) {
-        printf("| LaneId | Variable     | Raw Hex  | Float Value  |\n");
-        printf("|--------|--------------|----------|--------------|\n");
+        printf("==============================================PTX LDMATRX=====================================\n");
+        printf("| LaneId | Variable     | Raw Hex  | Float Value  | | Variable     | Raw Hex  | Float Value  |\n");
+        printf("|--------|--------------|----------|--------------| |--------------|----------|--------------|\n");
     }
 
     // 所有线程同步，确保表头先打印（如果多个线程都打印表头会混乱，所以只让一个线程打印表头）
     __syncthreads(); // 如果这是在block级别，需要同步
 
-    // 每个线程打印自己的信息，但通过格式控制使其对齐
-    printf("| %6d | X (High 16)  |   0x%04X | %12.6f |\n", 
-        static_cast<int>(laneid), high16_x, __half2float(h_high_x));
-    printf("| %6d | X (Low 16)   |   0x%04X | %12.6f |\n", 
-        static_cast<int>(laneid), low16_x, __half2float(h_low_x));
-    printf("| %6d | Y (High 16)  |   0x%04X | %12.6f |\n", 
-        static_cast<int>(laneid), high16_y, __half2float(h_high_y));
-    printf("| %6d | Y (Low 16)   |   0x%04X | %12.6f |\n", 
-        static_cast<int>(laneid), low16_y, __half2float(h_low_y));
+    // 每个线程打印自己的信息，但将X的高16位和低16位打印在同一行
+    printf("| %6d | X (Low 16)  |   0x%04X | %12.6f | "
+        "| X (High 16)   |   0x%04X | %12.6f |\n", 
+        static_cast<int>(laneid), 
+        low16_x, __half2float(h_low_x),
+        high16_x, __half2float(h_high_x));
+    printf("| %6d | Y (Low 16)  |   0x%04X | %12.6f | "
+        "| Y (High 16)   |   0x%04X | %12.6f |\n", 
+        static_cast<int>(laneid), 
+        low16_y, __half2float(h_low_y),
+        high16_y, __half2float(h_high_y));
+}
+// ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
+//                            ldmatrix.trans.X2                       
+// ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+__global__ void ldmatrix_m8n8_trans_x2(){
+    constexpr int row = 16;
+    constexpr int col = 8;
+    __shared__ half A[row * col];
+    const int laneid = (threadIdx.z * (blockDim.x * blockDim.y) + threadIdx.y * blockDim.x + threadIdx.x) 
+                        & (warpSize - 1);
+    A[laneid]=__float2half(laneid * 1.0f);
+    A[laneid + 32]=__float2half(laneid * 2.0f);
+    A[laneid + 32 + 32]=__float2half(laneid * 3.0f);
+    A[laneid + 32 + 32 + 32]=__float2half(laneid * 4.0f);
+    __syncthreads();
+
+    if(laneid == 0){
+        dumpEx_row_major<half>(A, row,col, "16bit A:",1,2);
+    }
+
+    uint32_t RA[2];
+
+    LDMATRIX_TRANS_X2(RA[0], RA[1], __cvta_generic_to_shared(&A[(laneid * 8) % (row * col)]));
 
 
+    int x = static_cast<int>(RA[0]);
+    int y = static_cast<int>(RA[1]);
 
+    // 1. 将 uint32_t 拆分为两个 uint16_t
+    uint16_t high16_x = static_cast<uint16_t>(x >> 16);  // 高16位
+    uint16_t low16_x  = static_cast<uint16_t>(x & 0xFFFF); // 低16位
+    uint16_t high16_y = static_cast<uint16_t>(y >> 16);  // 高16位
+    uint16_t low16_y  = static_cast<uint16_t>(y & 0xFFFF); // 低16位
     
+    // 2. 将 uint16_t 的位模式重新解释为 half 类型
+    __half h_high_x, h_low_x;
+    __half h_high_y, h_low_y;
+
+    // 使用 memcpy 或类型双关来保持位模式不变
+    memcpy(&h_high_x, &high16_x, sizeof(uint16_t));
+    memcpy(&h_low_x, &low16_x, sizeof(uint16_t));
+    memcpy(&h_high_y, &high16_y, sizeof(uint16_t));
+    memcpy(&h_low_y, &low16_y, sizeof(uint16_t));
+
+    if (laneid == 0) {
+        printf("==============================================PTX LDMATRX=====================================\n");
+        printf("| LaneId | Variable     | Raw Hex  | Float Value  | | Variable     | Raw Hex  | Float Value  |\n");
+        printf("|--------|--------------|----------|--------------| |--------------|----------|--------------|\n");
+    }
+
+    // 所有线程同步，确保表头先打印（如果多个线程都打印表头会混乱，所以只让一个线程打印表头）
+    __syncthreads(); // 如果这是在block级别，需要同步
+
+    // 每个线程打印自己的信息，但将X的高16位和低16位打印在同一行
+    printf("| %6d | X (Low 16)  |   0x%04X | %12.6f | "
+        "| X (High 16)   |   0x%04X | %12.6f |\n", 
+        static_cast<int>(laneid), 
+        low16_x, __half2float(h_low_x),
+        high16_x, __half2float(h_high_x));
+    printf("| %6d | Y (Low 16)  |   0x%04X | %12.6f | "
+        "| Y (High 16)   |   0x%04X | %12.6f |\n", 
+        static_cast<int>(laneid), 
+        low16_y, __half2float(h_low_y),
+        high16_y, __half2float(h_high_y));
+
 }
 
+// cuda替换ptx-ldmatirx.m8n8.trans.x2
+__global__ void load_m8n8_trans_x2(){
+    constexpr int row = 16;
+    constexpr int col = 8;
+    __shared__ half A[row * col];
+    const int laneid = (threadIdx.z * (blockDim.x * blockDim.y) + threadIdx.y * blockDim.x + threadIdx.x) 
+                        & (warpSize - 1);
+    A[laneid]=__float2half(laneid * 1.0f);
+    A[laneid + 32]=__float2half(laneid * 2.0f);
+    A[laneid + 32 + 32]=__float2half(laneid * 3.0f);
+    A[laneid + 32 + 32 + 32]=__float2half(laneid * 4.0f);
+    __syncthreads();
 
+    if(laneid == 0){
+        dumpEx_row_major<half>(A, row,col, "16bit A:",1,2);
+    }
+
+    int index_temp =   (laneid * 8) % (row * col);
+
+    printf("Laneid: %d, index_temp: %d\n", laneid, index_temp);
+
+    uint32_t *ptr = reinterpret_cast<uint32_t*>(&A[index_temp]);
+
+    __half2 h2_x = {0,0};
+    __half2 h2_y = {0,0};
+
+
+    uintptr_t temp_x = 0;
+    uintptr_t temp_y = 0;
+
+    #pragma unroll 4
+    for(int i = 0; i < 4; i++) {
+        temp_x = __shfl_sync(0xFFFFFFFF, reinterpret_cast<uintptr_t>(ptr), 2 * i);
+        temp_y = __shfl_sync(0xFFFFFFFF, reinterpret_cast<uintptr_t>(ptr), 2 * i + 8);
+        if(laneid % 4 == i){
+            h2_x.x = *(reinterpret_cast<half*>(temp_x) + (laneid / 4));
+            h2_y.x = *(reinterpret_cast<half*>(temp_y) + (laneid / 4));
+        }
+        temp_x = __shfl_sync(0xFFFFFFFF, reinterpret_cast<uintptr_t>(ptr), 2 * i + 1);
+        temp_y = __shfl_sync(0xFFFFFFFF, reinterpret_cast<uintptr_t>(ptr), 2 * i + 1 + 8);
+        if(laneid % 4 == i){
+            h2_x.y = *(reinterpret_cast<half*>(temp_x) + (laneid / 4));            
+            h2_y.y = *(reinterpret_cast<half*>(temp_y) + (laneid / 4));            
+        }
+    }
+    int x = *reinterpret_cast<int*>(&h2_x);
+    int y = *reinterpret_cast<int*>(&h2_y);
+
+    // 1. 将 uint32_t 拆分为两个 uint16_t
+    uint16_t high16_x = static_cast<uint16_t>(x >> 16);  // 高16位
+    uint16_t low16_x  = static_cast<uint16_t>(x & 0xFFFF); // 低16位
+    uint16_t high16_y = static_cast<uint16_t>(y >> 16);  // 高16位
+    uint16_t low16_y  = static_cast<uint16_t>(y & 0xFFFF); // 低16位
+    // 2. 将 uint16_t 的位模式重新解释为 half 类型
+    __half h_high_x, h_low_x;
+    __half h_high_y, h_low_y;
+    // 使用 memcpy 或类型双关来保持位模式不变
+    memcpy(&h_high_x, &high16_x, sizeof(uint16_t));
+    memcpy(&h_low_x, &low16_x, sizeof(uint16_t));
+    memcpy(&h_high_y, &high16_y, sizeof(uint16_t));
+    memcpy(&h_low_y, &low16_y, sizeof(uint16_t));
+
+
+    if (laneid == 0) {
+        printf("===============================================SOFT LOAD======================================\n");
+        printf("| LaneId | Variable     | Raw Hex  | Float Value  | | Variable     | Raw Hex  | Float Value  |\n");
+        printf("|--------|--------------|----------|--------------| |--------------|----------|--------------|\n");
+    }
+
+    // 所有线程同步，确保表头先打印（如果多个线程都打印表头会混乱，所以只让一个线程打印表头）
+    __syncthreads(); // 如果这是在block级别，需要同步
+
+    // 每个线程打印自己的信息，但将X的高16位和低16位打印在同一行
+    printf("| %6d | X (Low 16)  |   0x%04X | %12.6f | "
+        "| X (High 16)   |   0x%04X | %12.6f |\n", 
+        static_cast<int>(laneid), 
+        low16_x, __half2float(h_low_x),
+        high16_x, __half2float(h_high_x));
+    printf("| %6d | Y (Low 16)  |   0x%04X | %12.6f | "
+        "| Y (High 16)   |   0x%04X | %12.6f |\n", 
+        static_cast<int>(laneid), 
+        low16_y, __half2float(h_low_y),
+        high16_y, __half2float(h_high_y));
+}
+// ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
+//                                 ldmatrix.X4                       
+// ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 __global__ void ldmatrix_m8n8_x4(){
     __shared__ half A[32*8];
     const size_t laneid = threadIdx.x % 32;
@@ -292,7 +589,6 @@ __global__ void ldmatrix_m8n8_x4(){
 
 }
 
-
 // cuda替换ptx-ldmatirx.m8n8.x4
 __global__ void load_m8n8_x4(){
     __shared__ half A[32*8];
@@ -309,7 +605,7 @@ __global__ void load_m8n8_x4(){
     __syncthreads();
 
     if(laneid == 0){
-        dumpEx_row_major<half>(A, 32,8, "16bit A:",1,4);
+        dumpEx_row_major<half>(A, 32,8, "16bit A:",1,2);
     }
 
     uint32_t *ptr = reinterpret_cast<uint32_t*>(&A[(laneid * 8) % (32 * 8)]);
@@ -369,44 +665,249 @@ __global__ void load_m8n8_x4(){
     memcpy(&h_high_w, &high16_w, sizeof(uint16_t));
     memcpy(&h_low_w, &low16_w, sizeof(uint16_t));
 
-
-    // 只让一个线程（例如laneid=0）执行打印，避免输出混乱
     if (laneid == 0) {
-        printf("| LaneId | Variable     | Raw Hex  | Float Value  |\n");
-        printf("|--------|--------------|----------|--------------|\n");
+        printf("===============================================SOFT LOAD======================================\n");
+        printf("| LaneId | Variable     | Raw Hex  | Float Value  | | Variable     | Raw Hex  | Float Value  |\n");
+        printf("|--------|--------------|----------|--------------| |--------------|----------|--------------|\n");
     }
 
     // 所有线程同步，确保表头先打印（如果多个线程都打印表头会混乱，所以只让一个线程打印表头）
     __syncthreads(); // 如果这是在block级别，需要同步
 
-    // 每个线程打印自己的信息，但通过格式控制使其对齐
-    printf("| %6d | X (High 16)  |   0x%04X | %12.6f |\n", 
-        static_cast<int>(laneid), high16_x, __half2float(h_high_x));
-    printf("| %6d | X (Low 16)   |   0x%04X | %12.6f |\n", 
-        static_cast<int>(laneid), low16_x, __half2float(h_low_x));
-    printf("| %6d | Y (High 16)  |   0x%04X | %12.6f |\n", 
-        static_cast<int>(laneid), high16_y, __half2float(h_high_y));
-    printf("| %6d | Y (Low 16)   |   0x%04X | %12.6f |\n", 
-        static_cast<int>(laneid), low16_y, __half2float(h_low_y));
-    printf("| %6d | X (High 16)  |   0x%04X | %12.6f |\n", 
-        static_cast<int>(laneid), high16_x, __half2float(h_high_x));
-    printf("| %6d | X (Low 16)   |   0x%04X | %12.6f |\n", 
-        static_cast<int>(laneid), low16_x, __half2float(h_low_x));
-    printf("| %6d | Y (High 16)  |   0x%04X | %12.6f |\n", 
-        static_cast<int>(laneid), high16_y, __half2float(h_high_y));
-    printf("| %6d | Y (Low 16)   |   0x%04X | %12.6f |\n", 
-        static_cast<int>(laneid), low16_y, __half2float(h_low_y));
-    printf("| %6d | Z (High 16)  |   0x%04X | %12.6f |\n", 
-        static_cast<int>(laneid), high16_z, __half2float(h_high_z));
-    printf("| %6d | Z (Low 16)   |   0x%04X | %12.6f |\n", 
-        static_cast<int>(laneid), low16_z, __half2float(h_low_z));
-    printf("| %6d | W (High 16)  |   0x%04X | %12.6f |\n", 
-        static_cast<int>(laneid), high16_w, __half2float(h_high_w));
-    printf("| %6d | W (Low 16)   |   0x%04X | %12.6f |\n", 
-        static_cast<int>(laneid), low16_w, __half2float(h_low_w));
+    // 每个线程打印自己的信息，但将X的高16位和低16位打印在同一行
+    printf("| %6d | X (Low 16)  |   0x%04X | %12.6f | "
+        "| X (High 16)   |   0x%04X | %12.6f |\n", 
+        static_cast<int>(laneid), 
+        low16_x, __half2float(h_low_x),
+        high16_x, __half2float(h_high_x));
+    printf("| %6d | Y (Low 16)  |   0x%04X | %12.6f | "
+        "| Y (High 16)   |   0x%04X | %12.6f |\n", 
+        static_cast<int>(laneid), 
+        low16_y, __half2float(h_low_y),
+        high16_y, __half2float(h_high_y));
+    printf("| %6d | Z (Low 16)  |   0x%04X | %12.6f | "
+        "| Z (High 16)   |   0x%04X | %12.6f |\n", 
+        static_cast<int>(laneid), 
+        low16_z, __half2float(h_low_z),
+        high16_z, __half2float(h_high_z));
+    printf("| %6d | W (Low 16)  |   0x%04X | %12.6f | "
+        "| W (High 16)   |   0x%04X | %12.6f |\n", 
+        static_cast<int>(laneid), 
+        low16_w, __half2float(h_low_w),
+        high16_w, __half2float(h_high_w));
+}
+// ▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼▼
+//                            ldmatrix.trans.X4                       
+// ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+__global__ void ldmatrix_m8n8_trans_x4(){
+    constexpr int row = 32;
+    constexpr int col = 8;
+    __shared__ half A[row * col];
+    const int laneid = (threadIdx.z * (blockDim.x * blockDim.y) + threadIdx.y * blockDim.x + threadIdx.x) 
+                        & (warpSize - 1);
+    A[laneid]=__float2half(laneid * 1.0f);
+    A[laneid + 32]=__float2half(laneid * 2.0f);
+    A[laneid + 32 + 32]=__float2half(laneid * 3.0f);
+    A[laneid + 32 + 32 + 32]=__float2half(laneid * 4.0f);
+    A[laneid + 32 + 32 + 32 + 32]=__float2half(laneid * 5.0f);
+    A[laneid + 32 + 32 + 32 + 32 + 32]=__float2half(laneid * 6.0f);
+    A[laneid + 32 + 32 + 32 + 32 + 32 + 32]=__float2half(laneid * 7.0f);
+    A[laneid + 32 + 32 + 32 + 32 + 32 + 32 + 32]=__float2half(laneid * 8.0f);
+    __syncthreads();
+
+    if(laneid == 0){
+        dumpEx_row_major<half>(A, row,col, "16bit A:",1,2);
+    }
+
+    uint32_t RA[4];
+
+    LDMATRIX_TRANS_X4(RA[0], RA[1], RA[2], RA[3], __cvta_generic_to_shared(&A[(laneid * 8) % (row * col)]));
+
+    int x = static_cast<int>(RA[0]);
+    int y = static_cast<int>(RA[1]);
+    int z = static_cast<int>(RA[2]);
+    int w = static_cast<int>(RA[3]);
+
+    // 1. 将 uint32_t 拆分为两个 uint16_t
+    uint16_t high16_x = static_cast<uint16_t>(x >> 16);  // 高16位
+    uint16_t low16_x  = static_cast<uint16_t>(x & 0xFFFF); // 低16位
+    uint16_t high16_y = static_cast<uint16_t>(y >> 16);  // 高16位
+    uint16_t low16_y  = static_cast<uint16_t>(y & 0xFFFF); // 低16位
+    uint16_t high16_z = static_cast<uint16_t>(z >> 16);  // 高16位
+    uint16_t low16_z  = static_cast<uint16_t>(z & 0xFFFF); // 低16位
+    uint16_t high16_w = static_cast<uint16_t>(w >> 16);  // 高16位
+    uint16_t low16_w  = static_cast<uint16_t>(w & 0xFFFF); // 低16位
     
+    // 2. 将 uint16_t 的位模式重新解释为 half 类型
+    __half h_high_x, h_low_x;
+    __half h_high_y, h_low_y;
+    __half h_high_z, h_low_z;
+    __half h_high_w, h_low_w;
+
+    // 使用 memcpy 或类型双关来保持位模式不变
+    memcpy(&h_high_x, &high16_x, sizeof(uint16_t));
+    memcpy(&h_low_x, &low16_x, sizeof(uint16_t));
+    memcpy(&h_high_y, &high16_y, sizeof(uint16_t));
+    memcpy(&h_low_y, &low16_y, sizeof(uint16_t));
+    memcpy(&h_high_z, &high16_z, sizeof(uint16_t));
+    memcpy(&h_low_z, &low16_z, sizeof(uint16_t));
+    memcpy(&h_high_w, &high16_w, sizeof(uint16_t));
+    memcpy(&h_low_w, &low16_w, sizeof(uint16_t));
+
+    if (laneid == 0) {
+        printf("==============================================PTX LDMATRX=====================================\n");
+        printf("| LaneId | Variable     | Raw Hex  | Float Value  | | Variable     | Raw Hex  | Float Value  |\n");
+        printf("|--------|--------------|----------|--------------| |--------------|----------|--------------|\n");
+    }
+
+    // 所有线程同步，确保表头先打印（如果多个线程都打印表头会混乱，所以只让一个线程打印表头）
+    __syncthreads(); // 如果这是在block级别，需要同步
+
+    // 每个线程打印自己的信息，但将X的高16位和低16位打印在同一行
+    printf("| %6d | X (Low 16)  |   0x%04X | %12.6f | "
+        "| X (High 16)   |   0x%04X | %12.6f |\n", 
+        static_cast<int>(laneid), 
+        low16_x, __half2float(h_low_x),
+        high16_x, __half2float(h_high_x));
+    printf("| %6d | Y (Low 16)  |   0x%04X | %12.6f | "
+        "| Y (High 16)   |   0x%04X | %12.6f |\n", 
+        static_cast<int>(laneid), 
+        low16_y, __half2float(h_low_y),
+        high16_y, __half2float(h_high_y));
+    printf("| %6d | Z (Low 16)  |   0x%04X | %12.6f | "
+        "| Z (High 16)   |   0x%04X | %12.6f |\n", 
+        static_cast<int>(laneid), 
+        low16_z, __half2float(h_low_z),
+        high16_z, __half2float(h_high_z));
+    printf("| %6d | W (Low 16)  |   0x%04X | %12.6f | "
+        "| W (High 16)   |   0x%04X | %12.6f |\n", 
+        static_cast<int>(laneid), 
+        low16_w, __half2float(h_low_w),
+        high16_w, __half2float(h_high_w));
 }
 
+// cuda替换ptx-ldmatirx.m8n8.x4
+__global__ void load_m8n8_trans_x4(){
+    constexpr int row = 32;
+    constexpr int col = 8;
+    __shared__ half A[row * col];
+    const int laneid = (threadIdx.z * (blockDim.x * blockDim.y) + threadIdx.y * blockDim.x + threadIdx.x) 
+                        & (warpSize - 1);
+    A[laneid]=__float2half(laneid * 1.0f);
+    A[laneid + 32]=__float2half(laneid * 2.0f);
+    A[laneid + 32 + 32]=__float2half(laneid * 3.0f);
+    A[laneid + 32 + 32 + 32]=__float2half(laneid * 4.0f);
+    A[laneid + 32 + 32 + 32 + 32]=__float2half(laneid * 5.0f);
+    A[laneid + 32 + 32 + 32 + 32 + 32]=__float2half(laneid * 6.0f);
+    A[laneid + 32 + 32 + 32 + 32 + 32 + 32]=__float2half(laneid * 7.0f);
+    A[laneid + 32 + 32 + 32 + 32 + 32 + 32 + 32]=__float2half(laneid * 8.0f);
+    __syncthreads();
+
+    if(laneid == 0){
+        dumpEx_row_major<half>(A, row,col, "16bit A:",1,2);
+    }
+
+    int index_temp =   (laneid * 8) % (row * col);
+
+    printf("Laneid: %d, index_temp: %d\n", laneid, index_temp);
+
+    uint32_t *ptr = reinterpret_cast<uint32_t*>(&A[index_temp]);
+
+    __half2 h2_x = {0,0};
+    __half2 h2_y = {0,0};
+    __half2 h2_z = {0,0};
+    __half2 h2_w = {0,0};
+
+
+    uintptr_t temp_x = 0;
+    uintptr_t temp_y = 0;
+    uintptr_t temp_z = 0;
+    uintptr_t temp_w = 0;
+
+    #pragma unroll 4
+    for(int i = 0; i < 4; i++) {
+        temp_x = __shfl_sync(0xFFFFFFFF, reinterpret_cast<uintptr_t>(ptr), 2 * i);
+        temp_y = __shfl_sync(0xFFFFFFFF, reinterpret_cast<uintptr_t>(ptr), 2 * i + 8);
+        temp_z = __shfl_sync(0xFFFFFFFF, reinterpret_cast<uintptr_t>(ptr), 2 * i + 8 + 8);
+        temp_w = __shfl_sync(0xFFFFFFFF, reinterpret_cast<uintptr_t>(ptr), 2 * i + 8 + 8 + 8);
+        if(laneid % 4 == i){
+            h2_x.x = *(reinterpret_cast<half*>(temp_x) + (laneid / 4));
+            h2_y.x = *(reinterpret_cast<half*>(temp_y) + (laneid / 4));
+            h2_z.x = *(reinterpret_cast<half*>(temp_z) + (laneid / 4));
+            h2_w.x = *(reinterpret_cast<half*>(temp_w) + (laneid / 4));
+        }
+        temp_x = __shfl_sync(0xFFFFFFFF, reinterpret_cast<uintptr_t>(ptr), 2 * i + 1);
+        temp_y = __shfl_sync(0xFFFFFFFF, reinterpret_cast<uintptr_t>(ptr), 2 * i + 1 + 8);
+        temp_z = __shfl_sync(0xFFFFFFFF, reinterpret_cast<uintptr_t>(ptr), 2 * i + 1 + 8 + 8);
+        temp_w = __shfl_sync(0xFFFFFFFF, reinterpret_cast<uintptr_t>(ptr), 2 * i + 1 + 8 + 8 + 8);
+        if(laneid % 4 == i){
+            h2_x.y = *(reinterpret_cast<half*>(temp_x) + (laneid / 4));            
+            h2_y.y = *(reinterpret_cast<half*>(temp_y) + (laneid / 4));            
+            h2_z.y = *(reinterpret_cast<half*>(temp_z) + (laneid / 4));            
+            h2_w.y = *(reinterpret_cast<half*>(temp_w) + (laneid / 4));            
+        }
+    }
+    int x = *reinterpret_cast<int*>(&h2_x);
+    int y = *reinterpret_cast<int*>(&h2_y);
+    int z = *reinterpret_cast<int*>(&h2_z);
+    int w = *reinterpret_cast<int*>(&h2_w);
+
+
+    // 1. 将 uint32_t 拆分为两个 uint16_t
+    uint16_t high16_x = static_cast<uint16_t>(x >> 16);  // 高16位
+    uint16_t low16_x  = static_cast<uint16_t>(x & 0xFFFF); // 低16位
+    uint16_t high16_y = static_cast<uint16_t>(y >> 16);  // 高16位
+    uint16_t low16_y  = static_cast<uint16_t>(y & 0xFFFF); // 低16位
+    uint16_t high16_z = static_cast<uint16_t>(z >> 16);  // 高16位
+    uint16_t low16_z  = static_cast<uint16_t>(z & 0xFFFF); // 低16位
+    uint16_t high16_w = static_cast<uint16_t>(w >> 16);  // 高16位
+    uint16_t low16_w  = static_cast<uint16_t>(w & 0xFFFF); // 低16位
+    // 2. 将 uint16_t 的位模式重新解释为 half 类型
+    __half h_high_x, h_low_x;
+    __half h_high_y, h_low_y;
+    __half h_high_z, h_low_z;
+    __half h_high_w, h_low_w;
+    // 使用 memcpy 或类型双关来保持位模式不变
+    memcpy(&h_high_x, &high16_x, sizeof(uint16_t));
+    memcpy(&h_low_x, &low16_x, sizeof(uint16_t));
+    memcpy(&h_high_y, &high16_y, sizeof(uint16_t));
+    memcpy(&h_low_y, &low16_y, sizeof(uint16_t));
+    memcpy(&h_high_z, &high16_z, sizeof(uint16_t));
+    memcpy(&h_low_z, &low16_z, sizeof(uint16_t));
+    memcpy(&h_high_w, &high16_w, sizeof(uint16_t));
+    memcpy(&h_low_w, &low16_w, sizeof(uint16_t));
+
+    if (laneid == 0) {
+        printf("===============================================SOFT LOAD======================================\n");
+        printf("| LaneId | Variable     | Raw Hex  | Float Value  | | Variable     | Raw Hex  | Float Value  |\n");
+        printf("|--------|--------------|----------|--------------| |--------------|----------|--------------|\n");
+    }
+
+    // 所有线程同步，确保表头先打印（如果多个线程都打印表头会混乱，所以只让一个线程打印表头）
+    __syncthreads(); // 如果这是在block级别，需要同步
+
+    // 每个线程打印自己的信息，但将X的高16位和低16位打印在同一行
+    printf("| %6d | X (Low 16)  |   0x%04X | %12.6f | "
+        "| X (High 16)   |   0x%04X | %12.6f |\n", 
+        static_cast<int>(laneid), 
+        low16_x, __half2float(h_low_x),
+        high16_x, __half2float(h_high_x));
+    printf("| %6d | Y (Low 16)  |   0x%04X | %12.6f | "
+        "| Y (High 16)   |   0x%04X | %12.6f |\n", 
+        static_cast<int>(laneid), 
+        low16_y, __half2float(h_low_y),
+        high16_y, __half2float(h_high_y));
+    printf("| %6d | Z (Low 16)  |   0x%04X | %12.6f | "
+        "| Z (High 16)   |   0x%04X | %12.6f |\n", 
+        static_cast<int>(laneid), 
+        low16_z, __half2float(h_low_z),
+        high16_z, __half2float(h_high_z));
+    printf("| %6d | W (Low 16)  |   0x%04X | %12.6f | "
+        "| W (High 16)   |   0x%04X | %12.6f |\n", 
+        static_cast<int>(laneid), 
+        low16_w, __half2float(h_low_w),
+        high16_w, __half2float(h_high_w));
+}
 
 int main(){
 
@@ -426,7 +927,7 @@ int main(){
     load_m8n8_x1<<<1,32>>>();
     syncError = cudaDeviceSynchronize();
     if (syncError != cudaSuccess) {
-        printf("ldmatrix_m8n8_x1 failed with error: %s\n", cudaGetErrorString(syncError));
+        printf("load_m8n8_x1 failed with error: %s\n", cudaGetErrorString(syncError));
     }    
     #endif
 
@@ -440,7 +941,7 @@ int main(){
     load_m8n8_x2<<<1,32>>>();
     syncError = cudaDeviceSynchronize();
     if (syncError != cudaSuccess) {
-        printf("ldmatrix_m8n8_x2 failed with error: %s\n", cudaGetErrorString(syncError));
+        printf("load_m8n8_x2 failed with error: %s\n", cudaGetErrorString(syncError));
     }  
     #endif
 
@@ -456,10 +957,56 @@ int main(){
     load_m8n8_x4<<<1,32>>>();
     syncError = cudaDeviceSynchronize();
     if (syncError != cudaSuccess) {
-        printf("ldmatrix_m8n8_x4 failed with error: %s\n", cudaGetErrorString(syncError));
+        printf("load_m8n8_x4 failed with error: %s\n", cudaGetErrorString(syncError));
     }    
 
     #endif
+
+    // 转置
+    #if defined (M8N8_TRANS_X1)
+    ldmatrix_m8n8_trans_x1<<<1,32>>>();
+    syncError = cudaDeviceSynchronize();
+    if (syncError != cudaSuccess) {
+        printf("ldmatrix_m8n8_trans_x1 failed with error: %s\n", cudaGetErrorString(syncError));
+    }    
+
+    load_m8n8_trans_x1<<<1,32>>>();
+    syncError = cudaDeviceSynchronize();
+    if (syncError != cudaSuccess) {
+        printf("load_m8n8_trans_x1 failed with error: %s\n", cudaGetErrorString(syncError));
+    }    
+    #endif
+    
+    
+    #if defined (M8N8_TRANS_X2)
+    ldmatrix_m8n8_trans_x2<<<1,32>>>();
+    syncError = cudaDeviceSynchronize();
+    if (syncError != cudaSuccess) {
+        printf("ldmatrix_m8n8_trans_x2 failed with error: %s\n", cudaGetErrorString(syncError));
+    }    
+
+    load_m8n8_trans_x2<<<1,32>>>();
+    syncError = cudaDeviceSynchronize();
+    if (syncError != cudaSuccess) {
+        printf("load_m8n8_trans_x2 failed with error: %s\n", cudaGetErrorString(syncError));
+    }    
+    #endif
+
+
+    #if defined (M8N8_TRANS_X4)
+    ldmatrix_m8n8_trans_x4<<<1,32>>>();
+    syncError = cudaDeviceSynchronize();
+    if (syncError != cudaSuccess) {
+        printf("ldmatrix_m8n8_trans_x4 failed with error: %s\n", cudaGetErrorString(syncError));
+    }    
+
+    load_m8n8_trans_x4<<<1,32>>>();
+    syncError = cudaDeviceSynchronize();
+    if (syncError != cudaSuccess) {
+        printf("load_m8n8_trans_x4 failed with error: %s\n", cudaGetErrorString(syncError));
+    }    
+    #endif
+
     printf("Done\n");
    
     return 0;
