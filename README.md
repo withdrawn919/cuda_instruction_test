@@ -47,6 +47,9 @@
 
   - m16n16k64dq_cuda_core.cu：cuda core反量化测试样例
 
+- ld
+  - load_shared.cu: 软件实现ld.shared的u16、u32、u32.v2、u32.v4版本
+
 - cvt
   - cvt_fp8_hard.cu：测试float2fp8的硬件转换
 
@@ -57,6 +60,8 @@
 - ldmatrix（shared->register）
 
   - ldmatrix_m16n16.cu：测试m16n16加载8bit位宽数据以及trans
+
+  - ldmatrix_x1_x2_x4_analysis.cu：ldmatrix.m8n8.{trans}的x1、x2、x4软件实现，以及m8n16的case
 
 - cp（global->shared）
 
@@ -74,5 +79,6 @@
   
     这个路径下保存程序的分析报告
 
-
+- st
+  - st_shared.cu: 软件实现st.shared的u16、u32、u32.v2、u32.v4版本
 
